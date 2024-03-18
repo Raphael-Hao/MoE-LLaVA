@@ -36,6 +36,7 @@ from einops import rearrange
 from torch.nn import CrossEntropyLoss
 from transformers.models.llama.modeling_llama import logger
 from transformers.utils import ModelOutput
+from .module import BRTMOE
 
 local_rank = None
 
@@ -76,6 +77,8 @@ class MoELLaVAPhiConfig(PhiConfig):
                 # 'embed_tokens', 'lm_head'
             ]
         )
+        self.capacities = [620]
+        self.ranks = [1]
 
         super(MoELLaVAPhiConfig, self).__init__(**kwargs)
 
@@ -292,7 +295,7 @@ def MoEPhiModel_forward(self):
 
     return forward
 
-
+#important!!!
 class MoELLaVAPhiForCausalLM(PhiForCausalLM, LlavaMetaForCausalLM):
     config_class = MoELLaVAPhiConfig
 
@@ -507,7 +510,7 @@ class MoELLaVAPhiForCausalLM(PhiForCausalLM, LlavaMetaForCausalLM):
         rank0_print(f'replace PhiModel.forward to MoEPhiModel.forward')
         # ipdb.set_trace()
 
-
+#important!!
 class EvalMoELLaVAPhiForCausalLM(MoELLaVAPhiForCausalLM):
     config_class = MoELLaVAPhiConfig
 
@@ -519,10 +522,23 @@ class EvalMoELLaVAPhiForCausalLM(MoELLaVAPhiForCausalLM):
         moe_layers_idx = self.config.moe['moe_layers_idx']
 
         for num_experts, layer_num in zip(self.config.moe['num_experts'], moe_layers_idx):
-            self.model.layers[layer_num].mlp = MoE(
+            mlp = self.model.layers[layer_num]
+            # self.model.layers[layer_num].mlp = MoE(
+            #     self.config.hidden_size,
+            #     expert=self.model.layers[layer_num].mlp,
+            #     num_experts=num_experts,
+            #     ep_size=self.config.moe['ep_size'],
+            #     k=self.config.moe['top_k_experts'],
+            #     capacity_factor=self.config.moe['capacity_factor'],
+            #     eval_capacity_factor=self.config.moe['eval_capacity_factor'],
+            #     min_capacity=self.config.moe['min_capacity'],
+            #     use_residual=self.config.moe['use_residual'],
+            # )
+            self.model.layers[layer_num].mlp = BRTMOE(
                 self.config.hidden_size,
                 expert=self.model.layers[layer_num].mlp,
                 num_experts=num_experts,
+                capacities=config.capacities,
                 ep_size=self.config.moe['ep_size'],
                 k=self.config.moe['top_k_experts'],
                 capacity_factor=self.config.moe['capacity_factor'],
@@ -530,6 +546,7 @@ class EvalMoELLaVAPhiForCausalLM(MoELLaVAPhiForCausalLM):
                 min_capacity=self.config.moe['min_capacity'],
                 use_residual=self.config.moe['use_residual'],
             )
+            mlp = self.model.layers[layer_num]
         rank0_print(f"LLM num_layers: {num_layers}, MoE num_layers: {len(moe_layers_idx)}, where\n",
                     *[f'layer-{layer_num} has {num_experts} experts\n' for num_experts, layer_num in
                       zip(self.config.moe['num_experts'], moe_layers_idx)])
