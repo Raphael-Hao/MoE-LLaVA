@@ -6,23 +6,19 @@
 
 
 import torch
-
+from pynvml import (
+    nvmlDeviceGetComputeRunningProcesses,
+    nvmlDeviceGetHandleByIndex,
+    nvmlInit,
+)
 from torch.utils.benchmark import Timer
 
-
 from brt.jit import make_jit_kernel
-
+from brt.jit.codegen import ModuleKernel
 from brt.jit.tvm import TVMTuner
 
-from brt.jit.codegen import ModuleKernel
-
-from pynvml import (
-    nvmlInit,
-    nvmlDeviceGetComputeRunningProcesses,
-    nvmlDeviceGetHandleByIndex
-)
-
 _NVM_initialized = False
+
 
 def check_if_exclusive(device_id: int):
     global _NVM_initialized
@@ -32,6 +28,7 @@ def check_if_exclusive(device_id: int):
     handle = nvmlDeviceGetHandleByIndex(device_id)
     process = nvmlDeviceGetComputeRunningProcesses(handle)
     return len(process) == 0
+
 
 torch.set_default_device("cuda:0")
 if not check_if_exclusive(0):
@@ -55,8 +52,8 @@ all_bs = [
 in_out_features = [
     # [768, 3072],
     # [3072, 768]
-    [2560,10240],
-    [10240,2560],
+    [2560, 10240],
+    [10240, 2560],
 ]
 
 
@@ -71,7 +68,9 @@ for bs in all_bs:
         }
 
         kernel_name = f"LinearBias_{bs}_{in_features}_{out_features}"
-        linear = torch.nn.Linear(in_features, out_features, bias=True, dtype=torch.float16, device="cuda").eval()
+        linear = torch.nn.Linear(
+            in_features, out_features, bias=True, dtype=torch.float16, device="cuda"
+        ).eval()
         tvm_tuner = TVMTuner(dtype=torch.float16)
 
         tvm_tuner.import_pt_netlet(
@@ -104,4 +103,3 @@ for bs in all_bs:
 
         tvm_tuner.tune_netlet()
         tvm_tuner.insert_netlet_to_storage()
-
